@@ -1,0 +1,11 @@
+node_modules/
+.nuxt/
+.output/
+.data/
+.nitro/
+dist/
+coverage/
+.DS_Store
+*.log
+.env*
+!.env.example
