@@ -7,54 +7,66 @@ import {
   ChevronRight,
   CircuitBoard,
   Clock3,
-  Cpu,
   Eye,
   FileText,
-  Gauge,
   History,
   ShieldCheck,
-  Thermometer,
   Tractor,
-  TrendingUp,
-  Zap,
 } from 'lucide-vue-next'
+import { CIRCUIT_OPTIONS } from '~/app/data/referenceData'
 
-const { activeTractor, sessions, latestSession, hardwareStatus, setSelectedSessionForModal } =
+const { activeTractor, tractors, sessions, setActiveTractor, setSelectedSessionForModal } =
   useDiagnostic()
-
-const measurements = computed(
-  () =>
-    latestSession.value?.measurements || {
-      voltageV: 0,
-      currentA: 0,
-      resistanceOhm: 0,
-      continuity: false,
-      fuseInstalledA: 0,
-      fuseBlown: false,
-      temperatureC: 0,
-    },
+const activeSessions = computed(() =>
+  sessions.value.filter(
+    (session) =>
+      session.chassisNumber.toUpperCase() === activeTractor.value.chassisNumber.toUpperCase(),
+  ),
 )
-const latestStatus = computed(() => latestSession.value?.overallStatus || 'WARNING')
-const latestCircuit = computed(() => latestSession.value?.circuitName || 'No scan recorded')
 const passedSessions = computed(
-  () => sessions.value.filter((session) => session.overallStatus === 'PASS').length,
+  () => activeSessions.value.filter((session) => session.overallStatus === 'PASS').length,
 )
 const attentionSessions = computed(
-  () => sessions.value.filter((session) => session.overallStatus !== 'PASS').length,
+  () => activeSessions.value.filter((session) => session.overallStatus !== 'PASS').length,
 )
 const passRate = computed(() =>
-  sessions.value.length ? Math.round((passedSessions.value / sessions.value.length) * 100) : 0,
+  activeSessions.value.length
+    ? Math.round((passedSessions.value / activeSessions.value.length) * 100)
+    : 0,
 )
-const onlineSensors = computed(
-  () =>
-    [
-      hardwareStatus.value.esp32,
-      hardwareStatus.value.voltageSensor,
-      hardwareStatus.value.currentSensor,
-      hardwareStatus.value.tempSensor,
-      hardwareStatus.value.continuityModule,
-    ].filter(Boolean).length,
+const circuitOverview = computed(() =>
+  CIRCUIT_OPTIONS.map((circuit) => {
+    const circuitSessions = activeSessions.value.filter(
+      (session) => session.circuitId === circuit.id,
+    )
+    return {
+      ...circuit,
+      latest: circuitSessions[0] ?? null,
+      scanCount: circuitSessions.length,
+    }
+  }),
 )
+const testedCircuits = computed(
+  () => circuitOverview.value.filter((circuit) => circuit.latest).length,
+)
+const coveragePercent = computed(() =>
+  Math.round((testedCircuits.value / CIRCUIT_OPTIONS.length) * 100),
+)
+const latestCircuitCounts = computed(() => ({
+  PASS: circuitOverview.value.filter((circuit) => circuit.latest?.overallStatus === 'PASS').length,
+  WARNING: circuitOverview.value.filter((circuit) => circuit.latest?.overallStatus === 'WARNING')
+    .length,
+  FAIL: circuitOverview.value.filter((circuit) => circuit.latest?.overallStatus === 'FAIL').length,
+}))
+const faultObservations = computed(() =>
+  circuitOverview.value.reduce((total, circuit) => total + (circuit.latest?.faults.length ?? 0), 0),
+)
+
+function selectDashboardTractor(event: Event) {
+  const tractorId = (event.target as HTMLSelectElement).value
+  const tractor = tractors.value.find((item) => item.id === tractorId)
+  if (tractor) setActiveTractor(tractor)
+}
 </script>
 
 <template>
@@ -77,8 +89,8 @@ const onlineSensors = computed(
           </div>
           <h1 class="text-2xl font-black tracking-tight sm:text-3xl">Electrical System Overview</h1>
           <p class="mt-2 max-w-xl text-sm leading-6 text-slate-400">
-            Monitor the active tractor, review live diagnostic measurements, and continue directly
-            into circuit testing from one operational workspace.
+            Monitor inspection coverage, review circuit-level outcomes, and continue directly into
+            electrical testing from one operational workspace.
           </p>
           <div class="mt-5 flex flex-wrap gap-2">
             <NuxtLink
@@ -100,7 +112,7 @@ const onlineSensors = computed(
           <div class="rounded-xl border border-white/10 bg-white/5 px-3 py-3 backdrop-blur-sm">
             <div class="text-[9px] font-bold text-slate-500 uppercase">Total scans</div>
             <div class="mt-1 font-mono text-lg font-black text-slate-100">
-              {{ sessions.length }}
+              {{ activeSessions.length }}
             </div>
           </div>
           <div class="rounded-xl border border-white/10 bg-white/5 px-3 py-3 backdrop-blur-sm">
@@ -108,8 +120,10 @@ const onlineSensors = computed(
             <div class="mt-1 font-mono text-lg font-black text-emerald-400">{{ passRate }}%</div>
           </div>
           <div class="rounded-xl border border-white/10 bg-white/5 px-3 py-3 backdrop-blur-sm">
-            <div class="text-[9px] font-bold text-slate-500 uppercase">Hardware</div>
-            <div class="mt-1 font-mono text-lg font-black text-blue-400">{{ onlineSensors }}/5</div>
+            <div class="text-[9px] font-bold text-slate-500 uppercase">Coverage</div>
+            <div class="mt-1 font-mono text-lg font-black text-blue-400">
+              {{ testedCircuits }}/{{ CIRCUIT_OPTIONS.length }}
+            </div>
           </div>
         </div>
       </div>
@@ -139,12 +153,22 @@ const onlineSensors = computed(
             </div>
           </div>
         </div>
-        <NuxtLink
-          to="/tractor"
-          class="flex shrink-0 items-center gap-1 text-[10px] font-black text-blue-600"
-        >
-          Change active vehicle<ChevronRight class="size-3.5" />
-        </NuxtLink>
+        <label class="relative block w-full sm:w-80">
+          <Tractor class="pointer-events-none absolute top-3 left-3 size-3.5 text-blue-600" />
+          <select
+            :value="activeTractor.id"
+            class="h-10 w-full appearance-none rounded-lg border border-blue-200 bg-white pr-9 pl-9 text-xs font-bold transition outline-none focus:border-blue-500 focus:ring-3 focus:ring-blue-500/10 dark:border-blue-900 dark:bg-[#1a1c1e]"
+            aria-label="Select active tractor"
+            @change="selectDashboardTractor"
+          >
+            <option v-for="tractor in tractors" :key="tractor.id" :value="tractor.id">
+              {{ tractor.model }} · {{ tractor.chassisNumber }}
+            </option>
+          </select>
+          <ChevronRight
+            class="pointer-events-none absolute top-3 right-3 size-3.5 rotate-90 text-gray-400"
+          />
+        </label>
       </div>
     </section>
 
@@ -153,8 +177,8 @@ const onlineSensors = computed(
         v-for="item in [
           {
             label: 'Completed scans',
-            value: sessions.length,
-            note: 'All recorded inspections',
+            value: activeSessions.length,
+            note: 'For the active tractor',
             icon: History,
             color: 'text-blue-600',
             bg: 'bg-blue-50 dark:bg-blue-950/30',
@@ -176,10 +200,10 @@ const onlineSensors = computed(
             bg: 'bg-amber-50 dark:bg-amber-950/30',
           },
           {
-            label: 'Sensors online',
-            value: `${onlineSensors}/5`,
-            note: hardwareStatus.comPort,
-            icon: Cpu,
+            label: 'Circuit coverage',
+            value: `${coveragePercent}%`,
+            note: `${testedCircuits} of ${CIRCUIT_OPTIONS.length} circuits tested`,
+            icon: CircuitBoard,
             color: 'text-violet-600',
             bg: 'bg-violet-50 dark:bg-violet-950/30',
           },
@@ -200,103 +224,184 @@ const onlineSensors = computed(
       </div>
     </section>
 
-    <section>
-      <div class="mb-3 flex flex-col justify-between gap-2 sm:flex-row sm:items-end">
-        <div>
-          <div
-            class="flex items-center gap-2 text-[10px] font-black tracking-wider text-blue-600 uppercase"
-          >
-            <Gauge class="size-3.5" />Latest telemetry
+    <section
+      class="overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm dark:border-[#2a2d32] dark:bg-[#1a1c1e]"
+    >
+      <header
+        class="flex flex-col justify-between gap-3 border-b border-gray-100 bg-gray-50/70 p-4 sm:flex-row sm:items-center sm:p-5 dark:border-[#2a2d32] dark:bg-[#202226]"
+      >
+        <div class="flex items-center gap-3">
+          <span class="grid size-9 place-items-center rounded-lg bg-blue-600 text-white">
+            <CircuitBoard class="size-4" />
+          </span>
+          <div>
+            <h2 class="text-sm font-black">Circuit health overview</h2>
+            <p class="text-[10px] text-gray-400">
+              Latest diagnostic outcome for each circuit—not cross-circuit measurements
+            </p>
           </div>
-          <h2 class="mt-1 text-lg font-black">Electrical measurements</h2>
         </div>
-        <div class="flex items-center gap-2 text-[10px] text-gray-400">
-          <CircuitBoard class="size-3.5" />Circuit:
-          <strong class="text-gray-700 dark:text-gray-200">{{ latestCircuit }}</strong>
-          <CommonStatusBadge v-if="latestSession" :status="latestStatus" size="sm" />
+        <div
+          class="flex min-w-0 items-center gap-2 rounded-lg border border-gray-200 bg-white px-3 py-2 dark:border-[#34383f] dark:bg-[#1a1c1e]"
+        >
+          <Tractor class="size-3.5 shrink-0 text-blue-600" />
+          <div class="min-w-0">
+            <div class="truncate text-[10px] font-black">{{ activeTractor.model }}</div>
+            <div class="truncate font-mono text-[8px] text-gray-400">
+              {{ activeTractor.chassisNumber }}
+            </div>
+          </div>
         </div>
-      </div>
+      </header>
 
-      <div class="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <DiagnosticMeasurementCard
-          title="Line Voltage"
-          :value="measurements.voltageV.toFixed(2)"
-          unit="V"
-          expected="12.0 V (±10%)"
-          :status="
-            !latestSession
-              ? 'WARNING'
-              : Math.abs(measurements.voltageV - 12) > 1.8
-                ? 'FAIL'
-                : Math.abs(measurements.voltageV - 12) > 0.96
-                  ? 'WARNING'
-                  : 'PASS'
-          "
-          :icon="Zap"
-          description="Battery and alternator supply potential"
-        />
-        <DiagnosticMeasurementCard
-          title="Circuit Current"
-          :value="measurements.currentA.toFixed(2)"
-          unit="A"
-          :expected="
-            latestSession ? `${latestSession.reference.currentA.toFixed(2)} A` : 'Awaiting scan'
-          "
-          :status="
-            !latestSession
-              ? 'WARNING'
-              : !measurements.continuity || measurements.currentA > 7
-                ? 'FAIL'
-                : 'PASS'
-          "
-          :icon="Activity"
-          description="Hall-effect current transducer"
-        />
-        <DiagnosticMeasurementCard
-          title="Circuit Resistance"
-          :value="measurements.resistanceOhm > 500 ? '∞' : measurements.resistanceOhm.toFixed(2)"
-          unit="Ω"
-          :expected="
-            latestSession
-              ? `${latestSession.reference.resistanceOhm.toFixed(2)} Ω`
-              : 'Awaiting scan'
-          "
-          :status="
-            !latestSession
-              ? 'WARNING'
-              : measurements.resistanceOhm > 500 || measurements.resistanceOhm < 0.5
-                ? 'FAIL'
-                : 'PASS'
-          "
-          :icon="Cpu"
-          description="Equivalent branch resistance"
-        />
-        <DiagnosticMeasurementCard
-          title="Junction Temperature"
-          :value="measurements.temperatureC.toFixed(1)"
-          unit="°C"
-          expected="< 50 °C"
-          :status="
-            !latestSession
-              ? 'WARNING'
-              : measurements.temperatureC > 70
-                ? 'FAIL'
-                : measurements.temperatureC > 55
-                  ? 'WARNING'
-                  : 'PASS'
-          "
-          :icon="Thermometer"
-          description="Connector thermal probe"
-        />
+      <div class="grid gap-px bg-gray-100 sm:grid-cols-2 xl:grid-cols-3 dark:bg-[#2a2d32]">
+        <div
+          v-for="circuit in circuitOverview"
+          :key="circuit.id"
+          class="group bg-white p-4 transition hover:bg-gray-50 dark:bg-[#1a1c1e] dark:hover:bg-[#202226]"
+        >
+          <div class="flex items-start justify-between gap-3">
+            <div class="flex min-w-0 items-start gap-3">
+              <span
+                :class="[
+                  'grid size-9 shrink-0 place-items-center rounded-lg',
+                  circuit.latest?.overallStatus === 'PASS'
+                    ? 'bg-emerald-50 text-emerald-600 dark:bg-emerald-950/30'
+                    : circuit.latest?.overallStatus === 'FAIL'
+                      ? 'bg-red-50 text-red-600 dark:bg-red-950/30'
+                      : circuit.latest?.overallStatus === 'WARNING'
+                        ? 'bg-amber-50 text-amber-600 dark:bg-amber-950/30'
+                        : 'bg-gray-100 text-gray-400 dark:bg-[#292c31]',
+                ]"
+              >
+                <CircuitBoard class="size-4" />
+              </span>
+              <div class="min-w-0">
+                <div class="truncate text-xs font-black">{{ circuit.name }}</div>
+                <div class="mt-1 truncate text-[9px] text-gray-400">
+                  {{ circuit.latest ? circuit.latest.formattedDate : 'Not inspected yet' }}
+                </div>
+              </div>
+            </div>
+            <CommonStatusBadge
+              v-if="circuit.latest"
+              :status="circuit.latest.overallStatus"
+              size="sm"
+            />
+            <span
+              v-else
+              class="rounded-md border border-gray-200 bg-gray-50 px-1.5 py-0.5 text-[9px] font-bold text-gray-400 uppercase dark:border-[#34383f] dark:bg-[#22252a]"
+            >
+              Untested
+            </span>
+          </div>
+          <div
+            class="mt-3 flex items-center justify-between border-t border-gray-100 pt-3 text-[9px] text-gray-400 dark:border-[#2a2d32]"
+          >
+            <span
+              >{{ circuit.scanCount }} scan{{ circuit.scanCount === 1 ? '' : 's' }} recorded</span
+            >
+            <NuxtLink
+              v-if="circuit.latest"
+              :to="`/reports?sessionId=${circuit.latest.id}`"
+              class="font-bold text-blue-600 opacity-80 transition group-hover:opacity-100"
+            >
+              View report
+            </NuxtLink>
+            <NuxtLink v-else to="/diagnostic-scan" class="font-bold text-blue-600">
+              Run test
+            </NuxtLink>
+          </div>
+        </div>
       </div>
     </section>
 
-    <DiagnosticHardwareStatus />
-
     <div class="grid gap-6 xl:grid-cols-12">
-      <div class="xl:col-span-5">
-        <DiagnosticTrendChart :sessions="sessions" />
-      </div>
+      <section
+        class="overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm xl:col-span-5 dark:border-[#2a2d32] dark:bg-[#1a1c1e]"
+      >
+        <header
+          class="flex items-center gap-3 border-b border-gray-100 bg-gray-50/70 p-4 sm:p-5 dark:border-[#2a2d32] dark:bg-[#202226]"
+        >
+          <span class="grid size-9 place-items-center rounded-lg bg-violet-600 text-white">
+            <ShieldCheck class="size-4" />
+          </span>
+          <div>
+            <h2 class="text-sm font-black">Inspection coverage</h2>
+            <p class="text-[10px] text-gray-400">Latest condition across the circuit catalog</p>
+          </div>
+        </header>
+
+        <div class="p-5">
+          <div class="flex items-end justify-between">
+            <div>
+              <div class="font-mono text-3xl font-black">{{ coveragePercent }}%</div>
+              <div class="mt-1 text-[10px] text-gray-400">
+                {{ testedCircuits }} of {{ CIRCUIT_OPTIONS.length }} circuits inspected
+              </div>
+            </div>
+            <div class="text-right">
+              <div class="font-mono text-lg font-black text-amber-600">{{ faultObservations }}</div>
+              <div class="text-[9px] text-gray-400 uppercase">Latest faults</div>
+            </div>
+          </div>
+
+          <div class="mt-4 h-2.5 overflow-hidden rounded-full bg-gray-100 dark:bg-[#2a2d32]">
+            <div
+              class="h-full rounded-full bg-blue-600 transition-all"
+              :style="{ width: `${coveragePercent}%` }"
+            />
+          </div>
+
+          <div class="mt-5 grid grid-cols-3 gap-2">
+            <div
+              class="rounded-xl border border-emerald-100 bg-emerald-50/60 p-3 text-center dark:border-emerald-950 dark:bg-emerald-950/20"
+            >
+              <div class="font-mono text-lg font-black text-emerald-600">
+                {{ latestCircuitCounts.PASS }}
+              </div>
+              <div class="text-[9px] font-bold text-emerald-700/70 uppercase dark:text-emerald-400">
+                Passing
+              </div>
+            </div>
+            <div
+              class="rounded-xl border border-amber-100 bg-amber-50/60 p-3 text-center dark:border-amber-950 dark:bg-amber-950/20"
+            >
+              <div class="font-mono text-lg font-black text-amber-600">
+                {{ latestCircuitCounts.WARNING }}
+              </div>
+              <div class="text-[9px] font-bold text-amber-700/70 uppercase dark:text-amber-400">
+                Warning
+              </div>
+            </div>
+            <div
+              class="rounded-xl border border-red-100 bg-red-50/60 p-3 text-center dark:border-red-950 dark:bg-red-950/20"
+            >
+              <div class="font-mono text-lg font-black text-red-600">
+                {{ latestCircuitCounts.FAIL }}
+              </div>
+              <div class="text-[9px] font-bold text-red-700/70 uppercase dark:text-red-400">
+                Failed
+              </div>
+            </div>
+          </div>
+
+          <div class="mt-5 space-y-2 border-t border-gray-100 pt-4 dark:border-[#2a2d32]">
+            <NuxtLink
+              to="/diagnostic-scan"
+              class="flex items-center justify-between rounded-lg bg-blue-600 px-3.5 py-2.5 text-[10px] font-black text-white"
+            >
+              Continue circuit testing<ArrowRight class="size-3.5" />
+            </NuxtLink>
+            <NuxtLink
+              to="/history"
+              class="flex items-center justify-between rounded-lg border border-gray-200 px-3.5 py-2.5 text-[10px] font-black text-gray-600 dark:border-[#34383f] dark:text-gray-300"
+            >
+              Review complete history<ChevronRight class="size-3.5" />
+            </NuxtLink>
+          </div>
+        </div>
+      </section>
 
       <section
         class="overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm xl:col-span-7 dark:border-[#2a2d32] dark:bg-[#1a1c1e]"
@@ -310,7 +415,7 @@ const onlineSensors = computed(
             </span>
             <div>
               <h2 class="text-sm font-black">Recent diagnostic sessions</h2>
-              <p class="text-[10px] text-gray-400">Latest inspections across all circuits</p>
+              <p class="text-[10px] text-gray-400">Latest inspections for the active tractor</p>
             </div>
           </div>
           <NuxtLink
@@ -321,7 +426,7 @@ const onlineSensors = computed(
           </NuxtLink>
         </header>
 
-        <div v-if="sessions.length" class="overflow-x-auto">
+        <div v-if="activeSessions.length" class="overflow-x-auto">
           <table class="w-full min-w-2xl text-left text-xs">
             <thead
               class="border-b border-gray-100 text-[9px] font-black tracking-wide text-gray-400 uppercase dark:border-[#2a2d32]"
@@ -336,7 +441,7 @@ const onlineSensors = computed(
             </thead>
             <tbody class="divide-y divide-gray-100 dark:divide-[#2a2d32]">
               <tr
-                v-for="session in sessions.slice(0, 5)"
+                v-for="session in activeSessions.slice(0, 5)"
                 :key="session.id"
                 class="transition hover:bg-gray-50/70 dark:hover:bg-[#202226]"
               >
@@ -384,7 +489,7 @@ const onlineSensors = computed(
             <span
               class="mx-auto grid size-14 place-items-center rounded-2xl bg-gray-100 text-gray-400 dark:bg-[#22252a]"
             >
-              <TrendingUp class="size-6" />
+              <History class="size-6" />
             </span>
             <h3 class="mt-4 text-sm font-black">No diagnostic activity yet</h3>
             <p class="mt-1 text-xs text-gray-400">Run a circuit scan to populate the dashboard.</p>

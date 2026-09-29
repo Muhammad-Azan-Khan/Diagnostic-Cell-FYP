@@ -4,6 +4,7 @@ import {
   AlertTriangle,
   CalendarDays,
   CheckCircle2,
+  CircuitBoard,
   CircleX,
   Download,
   Eye,
@@ -13,9 +14,10 @@ import {
   Search,
   SlidersHorizontal,
   Trash2,
+  Tractor,
   X,
 } from 'lucide-vue-next'
-import type { TestResultStatus } from '~/app/types/diagnostic'
+import type { DiagnosticSession, TestResultStatus } from '~/app/types/diagnostic'
 
 const { sessions, deleteSession, setSelectedSessionForModal } = useDiagnostic()
 const search = ref('')
@@ -51,6 +53,48 @@ const passRate = computed(() =>
 const filtersActive = computed(
   () => Boolean(search.value.trim()) || status.value !== 'ALL' || circuit.value !== 'ALL',
 )
+const groupedHistory = computed(() => {
+  const tractorGroups = new Map<
+    string,
+    {
+      model: string
+      chassisNumber: string
+      tractorId: string
+      technicianName: string
+      sessions: DiagnosticSession[]
+      circuits: Map<string, DiagnosticSession[]>
+    }
+  >()
+
+  for (const session of filtered.value) {
+    const tractorKey = session.chassisNumber.toUpperCase()
+    let tractor = tractorGroups.get(tractorKey)
+    if (!tractor) {
+      tractor = {
+        model: session.tractorModel,
+        chassisNumber: session.chassisNumber,
+        tractorId: session.tractorId,
+        technicianName: session.technicianName,
+        sessions: [],
+        circuits: new Map(),
+      }
+      tractorGroups.set(tractorKey, tractor)
+    }
+    tractor.sessions.push(session)
+    const circuitSessions = tractor.circuits.get(session.circuitId) ?? []
+    circuitSessions.push(session)
+    tractor.circuits.set(session.circuitId, circuitSessions)
+  }
+
+  return [...tractorGroups.values()].map((tractor) => ({
+    ...tractor,
+    circuits: [...tractor.circuits.entries()].map(([id, circuitSessions]) => ({
+      id,
+      name: circuitSessions[0]?.circuitName ?? id,
+      sessions: circuitSessions,
+    })),
+  }))
+})
 
 function clearFilters() {
   search.value = ''
@@ -270,105 +314,188 @@ function removeSession(id: string) {
         </div>
       </div>
 
-      <div v-if="filtered.length" class="overflow-x-auto">
-        <table class="w-full min-w-5xl text-left text-xs">
-          <thead
-            class="border-b border-gray-100 bg-gray-50/60 text-[9px] font-black tracking-wide text-gray-400 uppercase dark:border-[#2a2d32] dark:bg-[#202226]"
+      <div v-if="filtered.length" class="space-y-5 bg-gray-50/40 p-4 sm:p-5 dark:bg-[#151719]">
+        <section
+          v-for="tractorGroup in groupedHistory"
+          :key="tractorGroup.chassisNumber"
+          class="overflow-hidden rounded-xl border border-gray-200 bg-white shadow-xs dark:border-[#2f3238] dark:bg-[#1a1c1e]"
+        >
+          <header
+            class="flex flex-col justify-between gap-4 border-b border-gray-200 bg-slate-950 px-5 py-4 text-white sm:flex-row sm:items-center dark:border-[#2f3238]"
           >
-            <tr>
-              <th class="px-5 py-3">Session</th>
-              <th class="px-4 py-3">Vehicle</th>
-              <th class="px-4 py-3">Circuit</th>
-              <th class="px-4 py-3">Telemetry</th>
-              <th class="px-4 py-3">Result</th>
-              <th class="px-5 py-3 text-right">Actions</th>
-            </tr>
-          </thead>
-          <tbody class="divide-y divide-gray-100 dark:divide-[#2a2d32]">
-            <tr
-              v-for="session in filtered"
-              :key="session.id"
-              class="transition hover:bg-gray-50/70 dark:hover:bg-[#202226]"
+            <div class="flex min-w-0 items-center gap-3">
+              <span class="grid size-10 shrink-0 place-items-center rounded-xl bg-blue-600">
+                <Tractor class="size-5" />
+              </span>
+              <div class="min-w-0">
+                <div class="truncate text-sm font-black">{{ tractorGroup.model }}</div>
+                <div
+                  class="mt-1 flex flex-wrap gap-x-3 gap-y-1 font-mono text-[9px] text-slate-400"
+                >
+                  <span>CHASSIS {{ tractorGroup.chassisNumber }}</span>
+                  <span>ID {{ tractorGroup.tractorId }}</span>
+                  <span>{{ tractorGroup.technicianName }}</span>
+                </div>
+              </div>
+            </div>
+            <div class="flex gap-2">
+              <span
+                class="rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-[9px] font-bold text-slate-300"
+              >
+                <b class="font-mono text-sm text-white">{{ tractorGroup.sessions.length }}</b>
+                sessions
+              </span>
+              <span
+                class="rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-[9px] font-bold text-slate-300"
+              >
+                <b class="font-mono text-sm text-white">{{ tractorGroup.circuits.length }}</b>
+                circuits
+              </span>
+            </div>
+          </header>
+
+          <div class="space-y-4 p-3 sm:p-4">
+            <section
+              v-for="circuitGroup in tractorGroup.circuits"
+              :key="circuitGroup.id"
+              class="overflow-hidden rounded-xl border border-gray-200 dark:border-[#30343a]"
             >
-              <td class="px-5 py-4">
-                <div class="flex items-start gap-2.5">
+              <header
+                class="flex items-center justify-between gap-3 border-b border-gray-100 bg-gray-50 px-4 py-3 dark:border-[#30343a] dark:bg-[#22252a]"
+              >
+                <div class="flex items-center gap-2.5">
                   <span
-                    class="grid size-8 shrink-0 place-items-center rounded-lg bg-gray-100 text-gray-500 dark:bg-[#2a2d32]"
-                    ><CalendarDays class="size-3.5"
-                  /></span>
+                    class="grid size-8 place-items-center rounded-lg bg-blue-50 text-blue-600 dark:bg-blue-950/40"
+                  >
+                    <CircuitBoard class="size-4" />
+                  </span>
                   <div>
-                    <div class="font-semibold">{{ session.formattedDate }}</div>
-                    <div class="mt-0.5 font-mono text-[9px] text-gray-400">{{ session.id }}</div>
+                    <h3 class="text-xs font-black">{{ circuitGroup.name }}</h3>
+                    <p class="text-[9px] text-gray-400">
+                      {{ circuitGroup.sessions.length }} inspection{{
+                        circuitGroup.sessions.length === 1 ? '' : 's'
+                      }}
+                      recorded
+                    </p>
                   </div>
                 </div>
-              </td>
-              <td class="px-4 py-4">
-                <div class="max-w-44 truncate font-bold">{{ session.tractorModel }}</div>
-                <div class="mt-0.5 font-mono text-[9px] text-gray-400">
-                  {{ session.chassisNumber }}
-                </div>
-                <div class="mt-1 text-[9px] text-gray-400">{{ session.technicianName }}</div>
-              </td>
-              <td class="px-4 py-4">
-                <div class="font-bold">{{ session.circuitName }}</div>
-                <div class="mt-1 text-[9px] text-gray-400 capitalize">
-                  {{ session.diagnosticMode.replace('_', ' ') }}
-                </div>
-              </td>
-              <td class="px-4 py-4">
-                <div class="grid grid-cols-2 gap-x-4 gap-y-1 font-mono text-[9px]">
-                  <span><b class="text-gray-400">V</b> {{ session.measurements.voltageV }}V</span
-                  ><span><b class="text-gray-400">I</b> {{ session.measurements.currentA }}A</span
-                  ><span
-                    ><b class="text-gray-400">R</b> {{ session.measurements.resistanceOhm }}Ω</span
-                  ><span
-                    ><b class="text-gray-400">T</b> {{ session.measurements.temperatureC }}°C</span
+                <CommonStatusBadge :status="circuitGroup.sessions[0]!.overallStatus" size="sm" />
+              </header>
+
+              <div class="overflow-x-auto">
+                <table class="w-full min-w-3xl text-left text-xs">
+                  <thead
+                    class="border-b border-gray-100 text-[9px] font-black tracking-wide text-gray-400 uppercase dark:border-[#30343a]"
                   >
-                </div>
-              </td>
-              <td class="px-4 py-4">
-                <CommonStatusBadge :status="session.overallStatus" size="sm" />
-                <div class="mt-1.5 text-[9px] text-gray-400">
-                  {{ session.faults.length }} fault{{ session.faults.length === 1 ? '' : 's' }}
-                </div>
-              </td>
-              <td class="px-5 py-4">
-                <div class="flex justify-end gap-1.5">
-                  <button
-                    class="rounded-lg border border-gray-200 bg-white p-2 text-gray-500 hover:border-blue-300 hover:text-blue-600 dark:border-[#34383f] dark:bg-[#22252a]"
-                    title="Quick view"
-                    @click="setSelectedSessionForModal(session)"
-                  >
-                    <Eye class="size-3.5" /></button
-                  ><NuxtLink
-                    :to="`/reports?sessionId=${session.id}`"
-                    class="rounded-lg border border-gray-200 bg-white p-2 text-gray-500 hover:border-blue-300 hover:text-blue-600 dark:border-[#34383f] dark:bg-[#22252a]"
-                    title="Open report"
-                    ><FileText class="size-3.5" /></NuxtLink
-                  ><template v-if="deleteConfirmId === session.id"
-                    ><button
-                      class="rounded-lg bg-red-600 px-2.5 text-[9px] font-bold text-white"
-                      @click="removeSession(session.id)"
+                    <tr>
+                      <th class="px-4 py-2.5">Inspection</th>
+                      <th class="px-4 py-2.5">Circuit measurements</th>
+                      <th class="px-4 py-2.5">Mode</th>
+                      <th class="px-4 py-2.5">Result</th>
+                      <th class="px-4 py-2.5 text-right">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody class="divide-y divide-gray-100 dark:divide-[#30343a]">
+                    <tr
+                      v-for="session in circuitGroup.sessions"
+                      :key="session.id"
+                      class="transition hover:bg-gray-50/70 dark:hover:bg-[#202226]"
                     >
-                      Confirm</button
-                    ><button
-                      class="rounded-lg border border-gray-200 p-2"
-                      @click="deleteConfirmId = null"
-                    >
-                      <X class="size-3.5" /></button></template
-                  ><button
-                    v-else
-                    class="rounded-lg border border-red-100 bg-white p-2 text-red-500 hover:bg-red-50 dark:border-red-950 dark:bg-[#22252a]"
-                    title="Delete session"
-                    @click="deleteConfirmId = session.id"
-                  >
-                    <Trash2 class="size-3.5" />
-                  </button>
-                </div>
-              </td>
-            </tr>
-          </tbody>
-        </table>
+                      <td class="px-4 py-3.5">
+                        <div class="flex items-start gap-2.5">
+                          <span
+                            class="grid size-8 shrink-0 place-items-center rounded-lg bg-gray-100 text-gray-500 dark:bg-[#2a2d32]"
+                          >
+                            <CalendarDays class="size-3.5" />
+                          </span>
+                          <div>
+                            <div class="font-semibold">{{ session.formattedDate }}</div>
+                            <div class="mt-0.5 font-mono text-[9px] text-gray-400">
+                              {{ session.id }}
+                            </div>
+                          </div>
+                        </div>
+                      </td>
+                      <td class="px-4 py-3.5">
+                        <div class="grid grid-cols-2 gap-x-4 gap-y-1 font-mono text-[9px]">
+                          <span
+                            ><b class="text-gray-400">V</b>
+                            {{ session.measurements.voltageV }}V</span
+                          >
+                          <span
+                            ><b class="text-gray-400">I</b>
+                            {{ session.measurements.currentA }}A</span
+                          >
+                          <span
+                            ><b class="text-gray-400">R</b>
+                            {{ session.measurements.resistanceOhm }}Ω</span
+                          >
+                          <span
+                            ><b class="text-gray-400">T</b>
+                            {{ session.measurements.temperatureC }}°C</span
+                          >
+                        </div>
+                      </td>
+                      <td class="px-4 py-3.5">
+                        <span class="text-[10px] font-semibold capitalize">{{
+                          session.diagnosticMode.replace('_', ' ')
+                        }}</span>
+                      </td>
+                      <td class="px-4 py-3.5">
+                        <CommonStatusBadge :status="session.overallStatus" size="sm" />
+                        <div class="mt-1.5 text-[9px] text-gray-400">
+                          {{ session.faults.length }} fault{{
+                            session.faults.length === 1 ? '' : 's'
+                          }}
+                        </div>
+                      </td>
+                      <td class="px-4 py-3.5">
+                        <div class="flex justify-end gap-1.5">
+                          <button
+                            class="rounded-lg border border-gray-200 bg-white p-2 text-gray-500 hover:border-blue-300 hover:text-blue-600 dark:border-[#34383f] dark:bg-[#22252a]"
+                            title="Quick view"
+                            @click="setSelectedSessionForModal(session)"
+                          >
+                            <Eye class="size-3.5" />
+                          </button>
+                          <NuxtLink
+                            :to="`/reports?sessionId=${session.id}`"
+                            class="rounded-lg border border-gray-200 bg-white p-2 text-gray-500 hover:border-blue-300 hover:text-blue-600 dark:border-[#34383f] dark:bg-[#22252a]"
+                            title="Open report"
+                          >
+                            <FileText class="size-3.5" />
+                          </NuxtLink>
+                          <template v-if="deleteConfirmId === session.id">
+                            <button
+                              class="rounded-lg bg-red-600 px-2.5 text-[9px] font-bold text-white"
+                              @click="removeSession(session.id)"
+                            >
+                              Confirm
+                            </button>
+                            <button
+                              class="rounded-lg border border-gray-200 p-2 dark:border-[#34383f]"
+                              @click="deleteConfirmId = null"
+                            >
+                              <X class="size-3.5" />
+                            </button>
+                          </template>
+                          <button
+                            v-else
+                            class="rounded-lg border border-red-100 bg-white p-2 text-red-500 hover:bg-red-50 dark:border-red-950 dark:bg-[#22252a]"
+                            title="Delete session"
+                            @click="deleteConfirmId = session.id"
+                          >
+                            <Trash2 class="size-3.5" />
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </section>
+          </div>
+        </section>
       </div>
       <div v-else class="grid min-h-80 place-items-center p-10 text-center">
         <div>

@@ -121,6 +121,31 @@ export const useDiagnostic = () => {
     return tractor
   }
 
+  function updateTractor(id: string, data: Omit<TractorProfile, 'id' | 'savedAt' | 'totalScans'>) {
+    const index = tractors.value.findIndex((tractor) => tractor.id === id)
+    if (index < 0) return null
+    const duplicateChassis = tractors.value.some(
+      (tractor) =>
+        tractor.id !== id &&
+        tractor.chassisNumber.trim().toUpperCase() === data.chassisNumber.trim().toUpperCase(),
+    )
+    if (duplicateChassis) return null
+
+    const now = new Date()
+    const savedAt = `${now.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}, ${now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
+    const updated: TractorProfile = {
+      ...tractors.value[index]!,
+      ...data,
+      id,
+      chassisNumber: data.chassisNumber.toUpperCase(),
+      savedAt,
+    }
+    tractors.value[index] = updated
+    if (activeTractor.value.id === id) activeTractor.value = { ...updated }
+    persist()
+    return updated
+  }
+
   function deleteTractor(id: string) {
     tractors.value = tractors.value.filter((t) => t.id !== id)
     if (activeTractor.value.id === id)
@@ -178,6 +203,7 @@ export const useDiagnostic = () => {
     hardwareStatus,
     hydrate,
     saveTractor,
+    updateTractor,
     deleteTractor,
     setActiveTractor,
     addDiagnosticSession,
